@@ -64,37 +64,45 @@
 - (BOOL)needToInstallHelper:(NSString*) label {
 
     NSDictionary* installedHelperJobData =
-    (__bridge NSDictionary*) SMJobCopyDictionary(kSMDomainSystemLaunchd, (__bridge CFStringRef)label);
-    NSLog(@"Helper information:     %@", installedHelperJobData);
+    (NSDictionary*)CFBridgingRelease(SMJobCopyDictionary(kSMDomainSystemLaunchd, (__bridge CFStringRef)label));
+    NSLog(@"Helper information: %@", installedHelperJobData);
 
-    if (installedHelperJobData) {
-        NSString* installedPath = [[installedHelperJobData objectForKey:@"ProgramArguments"] objectAtIndex:0];
-        NSURL* installedPathURL = [NSURL fileURLWithPath:installedPath];
-
-        NSDictionary*  installedInfoPlist =
-            (NSDictionary*)CFBridgingRelease(CFBundleCopyInfoDictionaryForURL( (CFURLRef)installedPathURL ));
-        NSString* installedBundleVersion  = [installedInfoPlist objectForKey:@"CFBundleVersion"];
-        NSInteger installedVersion        = [installedBundleVersion integerValue];
-
-        NSLog(@"helper installedVersion: %ld", (long)installedVersion);
-
-        NSBundle* appBundle = [NSBundle mainBundle];
-        NSURL* appBundleURL = [appBundle bundleURL];
-
-        NSLog(@"helper appBundleURL: %@", appBundleURL);
-
-        NSURL*  currentHelperToolURL =
-            [appBundleURL URLByAppendingPathComponent:
-             @"Contents/Library/LaunchServices/com.pallotron.yubiswitch.helper"];
-        NSDictionary*  currentInfoPlist =
-            (NSDictionary*)CFBridgingRelease(CFBundleCopyInfoDictionaryForURL( (CFURLRef)currentHelperToolURL ));
-        NSString* currentBundleVersion = [currentInfoPlist objectForKey:@"CFBundleVersion"];
-        NSInteger currentVersion = [currentBundleVersion integerValue];
-
-        NSLog( @"helper currentVersion: %ld", (long)currentVersion );
-        return (currentVersion != installedVersion);
+    NSString* installedPath = nil;
+    NSArray* programArguments = [installedHelperJobData objectForKey:@"ProgramArguments"];
+    if ([programArguments isKindOfClass:[NSArray class]] && [programArguments count] > 0) {
+        installedPath = [programArguments objectAtIndex:0];
     }
-    return YES;
+
+    // On newer macOS versions SMJobCopyDictionary may return nil for this helper.
+    // In that case, check the canonical blessed helper path directly.
+    if (![installedPath isKindOfClass:[NSString class]] || [installedPath length] == 0) {
+        installedPath = [@"/Library/PrivilegedHelperTools" stringByAppendingPathComponent:label];
+        NSLog(@"Falling back to helper path check: %@", installedPath);
+    }
+
+    NSURL* installedPathURL = [NSURL fileURLWithPath:installedPath];
+    NSDictionary* installedInfoPlist =
+        (NSDictionary*)CFBridgingRelease(CFBundleCopyInfoDictionaryForURL((CFURLRef)installedPathURL));
+    NSString* installedBundleVersion = [installedInfoPlist objectForKey:@"CFBundleVersion"];
+    if (![installedBundleVersion isKindOfClass:[NSString class]] || [installedBundleVersion length] == 0) {
+        return YES;
+    }
+
+    NSBundle* appBundle = [NSBundle mainBundle];
+    NSURL* appBundleURL = [appBundle bundleURL];
+    NSURL* currentHelperToolURL =
+        [appBundleURL URLByAppendingPathComponent:
+         @"Contents/Library/LaunchServices/com.pallotron.yubiswitch.helper"];
+    NSDictionary* currentInfoPlist =
+        (NSDictionary*)CFBridgingRelease(CFBundleCopyInfoDictionaryForURL((CFURLRef)currentHelperToolURL));
+    NSString* currentBundleVersion = [currentInfoPlist objectForKey:@"CFBundleVersion"];
+    if (![currentBundleVersion isKindOfClass:[NSString class]] || [currentBundleVersion length] == 0) {
+        return YES;
+    }
+
+    NSLog(@"helper installedVersion: %@", installedBundleVersion);
+    NSLog(@"helper currentVersion: %@", currentBundleVersion);
+    return ![currentBundleVersion isEqualToString:installedBundleVersion];
 }
 
 - (BOOL)blessHelperWithLabel:(NSString *)label error:(NSError **)error {
