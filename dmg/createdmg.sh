@@ -38,7 +38,7 @@ if [ ! $OUTPUT ]; then
   exit 1
 fi
 
-codesign -s "Apple Development: David Rothera (G54X79V8CR)" $OUTPUT
+codesign -s "Developer ID Application: Supratude Limited (YX97W249KL)" $OUTPUT
 xcrun notarytool submit $OUTPUT --keychain-profile YubiswitchNotary --wait
 xcrun stapler staple $OUTPUT
 
