@@ -52,13 +52,15 @@ done
 # Remove files
 echo "Removing yubiswitch files..."
 rm -f /Library/PrivilegedHelperTools/com.pallotron.yubiswitch.helper
+rm -f /Library/LaunchDaemons/com.pallotron.yubiswitch.helper.plist
 rm -rf /Applications/yubiswitch.app/
 
 # Check if files were removed successfully
-if [ -f "/Library/PrivilegedHelperTools/com.pallotron.yubiswitch.helper" ] || [ -d "/Applications/yubiswitch.app/" ]; then
+if [ -f "/Library/PrivilegedHelperTools/com.pallotron.yubiswitch.helper" ] || [ -f "/Library/LaunchDaemons/com.pallotron.yubiswitch.helper.plist" ] || [ -d "/Applications/yubiswitch.app/" ]; then
     echo "Warning: Failed to remove some yubiswitch files. Please try removing them manually with:
 
     sudo rm -f /Library/PrivilegedHelperTools/com.pallotron.yubiswitch.helper
+    sudo rm -f /Library/LaunchDaemons/com.pallotron.yubiswitch.helper.plist
     sudo rm -rf /Applications/yubiswitch.app/"
     exit 1
 else
