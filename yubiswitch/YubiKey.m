@@ -102,7 +102,20 @@
 
     NSLog(@"helper installedVersion: %@", installedBundleVersion);
     NSLog(@"helper currentVersion: %@", currentBundleVersion);
-    return ![currentBundleVersion isEqualToString:installedBundleVersion];
+    if (![currentBundleVersion isEqualToString:installedBundleVersion]) {
+        return YES;
+    }
+
+    // Verify the LaunchDaemon plist is owned by root. A stale plist with wrong
+    // ownership will cause launchctl bootstrap to fail with an I/O error.
+    NSString *plistPath = [NSString stringWithFormat:@"/Library/LaunchDaemons/%@.plist", label];
+    NSDictionary *attrs = [[NSFileManager defaultManager] attributesOfItemAtPath:plistPath error:nil];
+    if (attrs && [[attrs fileOwnerAccountName] isEqualToString:@"root"] == NO) {
+        NSLog(@"LaunchDaemon plist has wrong ownership, re-blessing helper");
+        return YES;
+    }
+
+    return NO;
 }
 
 - (BOOL)blessHelperWithLabel:(NSString *)label error:(NSError **)error {
@@ -123,6 +136,19 @@
     if (status != errAuthorizationSuccess) {
         NSLog(@"Failed to bless helper");
     } else {
+        // Remove a stale LaunchDaemon plist before re-blessing. A plist with
+        // wrong ownership (e.g. left over from a previous install) will cause
+        // launchctl bootstrap to fail with an I/O error. We use the
+        // AuthorizationRef we already hold to perform a privileged removal.
+        NSString *plistPath = [NSString stringWithFormat:
+                               @"/Library/LaunchDaemons/%@.plist", label];
+        char *rmArgs[] = {"-f", (char *)[plistPath fileSystemRepresentation], NULL};
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        AuthorizationExecuteWithPrivileges(authRef, "/bin/rm",
+                                           kAuthorizationFlagDefaults, rmArgs, NULL);
+#pragma clang diagnostic pop
+
         /* This does all the work of verifying the helper tool against the
          * application
          * and vice-versa. Once verification has passed, the embedded launchd.plist
