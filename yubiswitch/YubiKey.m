@@ -44,9 +44,9 @@
             [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:prefPage]];
         }
 
-        if ([self needToInstallHelper:@"com.pallotron.yubiswitch.helper"]) {
+        if ([self needToInstallHelper:@"com.zgilburd.yubiswitch.helper"]) {
             NSError *error = nil;
-            if (![self blessHelperWithLabel:@"com.pallotron.yubiswitch.helper"
+            if (![self blessHelperWithLabel:@"com.zgilburd.yubiswitch.helper"
                                       error:&error]) {
                 [self raiseAlertWindow:
                  [NSString stringWithFormat:@"Failed to bless helper. Error: %@",
@@ -63,8 +63,11 @@
 
 - (BOOL)needToInstallHelper:(NSString*) label {
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
     NSDictionary* installedHelperJobData =
     (NSDictionary*)CFBridgingRelease(SMJobCopyDictionary(kSMDomainSystemLaunchd, (__bridge CFStringRef)label));
+#pragma clang diagnostic pop
     NSLog(@"Helper information: %@", installedHelperJobData);
 
     NSString* installedPath = nil;
@@ -92,7 +95,7 @@
     NSURL* appBundleURL = [appBundle bundleURL];
     NSURL* currentHelperToolURL =
         [appBundleURL URLByAppendingPathComponent:
-         @"Contents/Library/LaunchServices/com.pallotron.yubiswitch.helper"];
+         @"Contents/Library/LaunchServices/com.zgilburd.yubiswitch.helper"];
     NSDictionary* currentInfoPlist =
         (NSDictionary*)CFBridgingRelease(CFBundleCopyInfoDictionaryForURL((CFURLRef)currentHelperToolURL));
     NSString* currentBundleVersion = [currentInfoPlist objectForKey:@"CFBundleVersion"];
@@ -165,7 +168,7 @@
 - (void)raiseAlertWindow:(NSString *)message {
     NSAlert *alert = [[NSAlert alloc] init];
     [alert addButtonWithTitle:@"OK"];
-    [alert setAlertStyle:NSWarningAlertStyle];
+    [alert setAlertStyle:NSAlertStyleWarning];
     [alert setMessageText:message];
     [alert runModal];
 }
@@ -178,7 +181,7 @@
 
 - (BOOL)action:(NSString *)action {
     xpc_connection_t connection = xpc_connection_create_mach_service(
-                                                                     "com.pallotron.yubiswitch.helper", NULL,
+                                                                     "com.zgilburd.yubiswitch.helper", NULL,
                                                                      XPC_CONNECTION_MACH_SERVICE_PRIVILEGED);
 
     if (!connection) {

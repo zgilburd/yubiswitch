@@ -59,8 +59,8 @@
     if (yk != NULL) {
         if (isEnabled && [yk state]) { // inverted this means change
             NSLog(@"noticed change...");
-            [statusItem setToolTip:(@"YubiKey disabled")];
-            [statusItem setImage:[NSImage imageNamed:@"YubikeyDisabled"]];
+            [statusItem.button setToolTip:(@"YubiKey disabled")];
+            [statusItem.button setImage:[NSImage imageNamed:@"YubikeyDisabled"]];
             isEnabled = false;
             [[statusMenu itemAtIndex:0] setState:0];
             [self notify:@"YubiKey disabled"];
@@ -71,7 +71,13 @@
     yk = [[YubiKey alloc] init];
     [yk disable];
     state_monitor = [[ComputerStateMonitor alloc] initWithYubiKey:yk];
-    usernotification = [[NSUserNotification alloc] init];
+    UNUserNotificationCenter *center = [UNUserNotificationCenter currentNotificationCenter];
+    [center requestAuthorizationWithOptions:(UNAuthorizationOptionAlert | UNAuthorizationOptionSound)
+                          completionHandler:^(BOOL granted, NSError *error) {
+        if (!granted) {
+            NSLog(@"Notification permission not granted");
+        }
+    }];
     [self notify:@"YubiKey disabled"];
     aboutwc = [[AboutWindowController alloc]
                initWithWindowNibName:@"AboutWindowController"];
@@ -84,7 +90,6 @@
     statusItem = [[NSStatusBar systemStatusBar]
                   statusItemWithLength:NSVariableStatusItemLength];
     [statusItem setMenu:statusMenu];
-    [statusItem setHighlightMode:YES];
     [statusItem.button setImage:[NSImage imageNamed:@"YubikeyDisabled"]];
     [statusItem.button setToolTip:@"YubiKey disabled"];
 
@@ -143,9 +148,15 @@
                                  boolForKey:@"displayNotifications"];
     if (!displayNotifications)
         return;
-    usernotification.title = msg;
-    [[NSUserNotificationCenter defaultUserNotificationCenter]
-     deliverNotification:usernotification];
+    UNMutableNotificationContent *content = [[UNMutableNotificationContent alloc] init];
+    content.title = msg;
+    UNNotificationRequest *request =
+        [UNNotificationRequest requestWithIdentifier:[[NSUUID UUID] UUIDString]
+                                             content:content
+                                             trigger:nil];
+    [[UNUserNotificationCenter currentNotificationCenter]
+        addNotificationRequest:request
+        withCompletionHandler:nil];
 }
 
 // TODO: create enable/disable methods and use them in toggle: and createTimer:
@@ -161,8 +172,8 @@
     BOOL res;
     res = [yk disable];
     if (res == TRUE) {
-        [statusItem setToolTip:(@"YubiKey disabled")];
-        [statusItem setImage:[NSImage imageNamed:@"YubikeyDisabled"]];
+        [statusItem.button setToolTip:(@"YubiKey disabled")];
+        [statusItem.button setImage:[NSImage imageNamed:@"YubikeyDisabled"]];
         isEnabled = false;
         [[statusMenu itemAtIndex:0] setState:0];
         [self notify:@"YubiKey disabled"];
@@ -180,8 +191,8 @@
         [reDisableTimer invalidate];
         reDisableTimer = nil;
         if (enable == TRUE) {
-            [statusItem setToolTip:(@"YubiKey enabled")];
-            [statusItem setImage:[NSImage imageNamed:@"YubikeyEnabled"]];
+            [statusItem.button setToolTip:(@"YubiKey enabled")];
+            [statusItem.button setImage:[NSImage imageNamed:@"YubikeyEnabled"]];
             isEnabled = true;
             [[statusMenu itemAtIndex:0] setState:1];
             [self notify:@"YubiKey enabled"];
@@ -196,8 +207,8 @@
                 reDisableTimer = [self createTimer:(long)[interval integerValue]];
             }
         } else {
-            [statusItem setToolTip:(@"YubiKey disabled")];
-            [statusItem setImage:[NSImage imageNamed:@"YubikeyDisabled"]];
+            [statusItem.button setToolTip:(@"YubiKey disabled")];
+            [statusItem.button setImage:[NSImage imageNamed:@"YubikeyDisabled"]];
             isEnabled = false;
             [[statusMenu itemAtIndex:0] setState:0];
             [self notify:@"YubiKey disabled"];
@@ -240,14 +251,14 @@
 - (IBAction)about:(id)sender {
     [[aboutwc window] makeKeyAndOrderFront:self];
     [[aboutwc window] setOrderedIndex:0];
-    [NSApp activateIgnoringOtherApps:YES];
+    [NSApp activate];
     [aboutwc showWindow:self];
 }
 
 - (IBAction)pref:(id)sender {
     [[prefwc window] makeKeyAndOrderFront:self];
     [[prefwc window] setOrderedIndex:0];
-    [NSApp activateIgnoringOtherApps:YES];
+    [NSApp activate];
     [prefwc showWindow:self];
 }
 

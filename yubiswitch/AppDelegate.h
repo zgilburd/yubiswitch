@@ -20,7 +20,7 @@
  */
 
 #import <Cocoa/Cocoa.h>
-#import <Carbon/Carbon.h>
+#import <UserNotifications/UserNotifications.h>
 
 #import "YubiKey.h"
 #import "AboutWindowController.h"
@@ -33,7 +33,6 @@
     bool isEnabled;
     YubiKey* yk;
     NSTimer *m_timer;
-    NSUserNotification* usernotification;
     AboutWindowController* aboutwc;
     PreferencesController* prefwc;
     NSTimer* reDisableTimer;

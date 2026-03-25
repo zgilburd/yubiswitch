@@ -3,10 +3,10 @@
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>com.pallotron.yubiswitch.helper</string>
+	<string>com.zgilburd.yubiswitch.helper</string>
 	<key>MachServices</key>
 	<dict>
-		<key>com.pallotron.yubiswitch.helper</key>
+		<key>com.zgilburd.yubiswitch.helper</key>
 		<true/>
 	</dict>
 </dict>

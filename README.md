@@ -156,14 +156,14 @@ If you prefer to manually uninstall, execute these steps as root:
 Kill all processes:
 
 ```
-# pkill -f com.pallotron.yubiswitch.helper
+# pkill -f com.zgilburd.yubiswitch.helper
 ```
 
 Tell `launchctl` to stop the helper daemon:
 
 ```
-# launchctl stop com.pallotron.yubiswitch.helper
-# launchctl remove com.pallotron.yubiswitch.helper
+# launchctl stop com.zgilburd.yubiswitch.helper
+# launchctl remove com.zgilburd.yubiswitch.helper
 ```
 
 Check that `launchctl` service is no longer there:
@@ -175,7 +175,7 @@ Check that `launchctl` service is no longer there:
 Remove files from filesystem:
 
 ```
-# sudo rm /Library/PrivilegedHelperTools/com.pallotron.yubiswitch.helper
+# sudo rm /Library/PrivilegedHelperTools/com.zgilburd.yubiswitch.helper
 # sudo rm -r /Applications/yubiswitch.app/
 ```
 

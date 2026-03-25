@@ -17,7 +17,10 @@
  */
 
 #include <syslog.h>
+#include <os/log.h>
 #include <xpc/xpc.h>
+
+#define ylog(fmt, ...) os_log(OS_LOG_DEFAULT, fmt, ##__VA_ARGS__)
 #include <CoreFoundation/CoreFoundation.h>
 #include <IOKit/IOKitLib.h>
 #include <IOKit/IOCFPlugIn.h>
@@ -33,6 +36,9 @@
 
 IOHIDManagerRef hidManager;
 IOHIDDeviceRef hidDevice;
+IOUSBDeviceInterface **usbDevice;
+Boolean usbDeviceDeconfigured;
+UInt8 savedConfiguration;
 
 static void match_set(CFMutableDictionaryRef dict, CFStringRef key, int value) {
     CFNumberRef number = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &value);
@@ -40,10 +46,121 @@ static void match_set(CFMutableDictionaryRef dict, CFStringRef key, int value) {
     CFRelease(number);
 }
 
+// Get IOUSBDeviceInterface for the given VID/PID.
+static IOUSBDeviceInterface **usb_device_get(int vendorID, int productID) {
+    CFMutableDictionaryRef matchDict = IOServiceMatching("IOUSBHostDevice");
+    if (!matchDict) {
+        ylog("Failed to create USB matching dictionary");
+        return NULL;
+    }
+
+    CFNumberRef vidRef = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &vendorID);
+    CFNumberRef pidRef = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &productID);
+    CFDictionarySetValue(matchDict, CFSTR("idVendor"), vidRef);
+    CFDictionarySetValue(matchDict, CFSTR("idProduct"), pidRef);
+    CFRelease(vidRef);
+    CFRelease(pidRef);
+
+    io_service_t service = IOServiceGetMatchingService(kIOMainPortDefault, matchDict);
+    if (!service) {
+        ylog("USB device not found");
+        return NULL;
+    }
+
+    IOCFPlugInInterface **plugIn = NULL;
+    SInt32 score;
+    kern_return_t kr = IOCreatePlugInInterfaceForService(
+        service, kIOUSBDeviceUserClientTypeID, kIOCFPlugInInterfaceID,
+        &plugIn, &score);
+    IOObjectRelease(service);
+
+    if (kr != kIOReturnSuccess || !plugIn) {
+        ylog("Failed to create USB plugin interface: 0x%x", kr);
+        return NULL;
+    }
+
+    IOUSBDeviceInterface **dev = NULL;
+    (*plugIn)->QueryInterface(plugIn,
+        CFUUIDGetUUIDBytes(kIOUSBDeviceInterfaceID),
+        (LPVOID *)&dev);
+    (*plugIn)->Release(plugIn);
+    return dev;
+}
+
+// Deconfigure/reconfigure the USB device. Setting configuration to 0
+// releases all interfaces (HID, FIDO, CCID), making the device inert —
+// the LED and capacitive touch sensor won't respond.
+static void usb_device_deconfigure(int vendorID, int productID, Boolean deconfigure) {
+    if (deconfigure && usbDeviceDeconfigured) return;
+    if (!deconfigure && !usbDeviceDeconfigured) return;
+
+    if (!deconfigure && usbDevice != NULL) {
+        // Restore the original configuration
+        ylog("Restoring USB configuration %d", savedConfiguration);
+        IOReturn r = (*usbDevice)->SetConfiguration(usbDevice, savedConfiguration);
+        if (r == kIOReturnSuccess) {
+            ylog("USB device reconfigured (restored)");
+        } else {
+            ylog("Failed to restore USB config: 0x%x", r);
+            // Try a USB reset as fallback to fully re-enumerate
+            (*usbDevice)->ResetDevice(usbDevice);
+            ylog("USB device reset issued");
+        }
+        (*usbDevice)->USBDeviceClose(usbDevice);
+        (*usbDevice)->Release(usbDevice);
+        usbDevice = NULL;
+        usbDeviceDeconfigured = false;
+        return;
+    }
+
+    usbDevice = usb_device_get(vendorID, productID);
+    if (!usbDevice) return;
+
+    IOReturn r = (*usbDevice)->USBDeviceOpenSeize(usbDevice);
+    if (r != kIOReturnSuccess) {
+        ylog("Failed to open/seize USB device: 0x%x, trying regular open", r);
+        r = (*usbDevice)->USBDeviceOpen(usbDevice);
+        if (r != kIOReturnSuccess) {
+            ylog("Failed to open USB device: 0x%x", r);
+            (*usbDevice)->Release(usbDevice);
+            usbDevice = NULL;
+            return;
+        }
+    }
+
+    // Save current configuration
+    r = (*usbDevice)->GetConfiguration(usbDevice, &savedConfiguration);
+    if (r != kIOReturnSuccess) {
+        ylog("Failed to get current config: 0x%x, assuming 1", r);
+        savedConfiguration = 1;
+    }
+    ylog("Current USB configuration: %d", savedConfiguration);
+
+    // Set configuration to 0 (unconfigured)
+    r = (*usbDevice)->SetConfiguration(usbDevice, 0);
+    if (r == kIOReturnSuccess) {
+        ylog("USB device deconfigured (config set to 0)");
+        usbDeviceDeconfigured = true;
+    } else {
+        ylog("Failed to deconfigure USB device: 0x%x", r);
+        // Try USB device suspend as fallback
+        r = (*usbDevice)->USBDeviceSuspend(usbDevice, true);
+        if (r == kIOReturnSuccess) {
+            ylog("USB device suspended (fallback)");
+            usbDeviceDeconfigured = true;
+        } else {
+            ylog("USB suspend fallback also failed: 0x%x", r);
+            (*usbDevice)->USBDeviceClose(usbDevice);
+            (*usbDevice)->Release(usbDevice);
+            usbDevice = NULL;
+        }
+    }
+}
+
 static void handle_removal_callback(void *context, IOReturn result,
                                     void *sender, IOHIDDeviceRef device) {
     if (hidDevice != NULL) {
-        syslog(LOG_NOTICE, "device unplugged");
+        ylog( "device unplugged");
         IOHIDDeviceClose(hidDevice, kIOHIDOptionsTypeSeizeDevice);
         hidDevice = NULL;
     }
@@ -51,22 +168,16 @@ static void handle_removal_callback(void *context, IOReturn result,
         IOHIDManagerClose(hidManager, kIOHIDOptionsTypeNone);
         hidManager = NULL;
     }
-
-    // lock screen
-    // In Objective-C land I would do this below but we are in pure C world here
-    // NSAppleScript *lockScript = [[NSAppleScript alloc]
-    // initWithSource:@"activate application \"ScreenSaverEngine\""];
-    // [lockScript executeAndReturnError:nil];
 }
 
 static void match_callback(void *context, IOReturn result, void *sender,
                            IOHIDDeviceRef device) {
     IOReturn r = IOHIDDeviceOpen(device, kIOHIDOptionsTypeSeizeDevice);
     if (r == kIOReturnSuccess) {
-        syslog(LOG_NOTICE, "Open'ed HID device");
+        ylog( "Open'ed HID device");
         hidDevice = device;
     } else {
-        syslog(LOG_ALERT, "Failed to open HID device, error: %d", r);
+        ylog( "Failed to open HID device, error: %d", r);
     }
 }
 
@@ -100,16 +211,17 @@ static void __XPC_Peer_Event_Handler(xpc_connection_t connection,
 
     if (type == XPC_TYPE_ERROR) {
         const char *description = xpc_dictionary_get_string(event, XPC_ERROR_KEY_DESCRIPTION);
-        syslog(LOG_ALERT, "XPC error: %s", description);
+        ylog( "XPC error: %s", description);
     } else {
         uint64_t idProduct = xpc_dictionary_get_int64(event, "idProduct");
         uint64_t idVendor = xpc_dictionary_get_int64(event, "idVendor");
         uint64_t action = xpc_dictionary_get_int64(event, "request");
-        syslog(LOG_NOTICE,
+        ylog(
                "Received message. idProduct: %llu, idVendor: %llu, action: %llu",
                idProduct, idVendor, action);
         if (action == 1) {
-            // enable
+            // enable — resume USB device first, then release HID seize
+            usb_device_deconfigure((int)idVendor, (int)idProduct, false);
             if (hidDevice != NULL) {
                 IOHIDDeviceClose(hidDevice, kIOHIDOptionsTypeSeizeDevice);
                 hidDevice = NULL;
@@ -119,7 +231,7 @@ static void __XPC_Peer_Event_Handler(xpc_connection_t connection,
                 hidManager = NULL;
             }
         } else {
-            // disable
+            // disable — seize HID first, then suspend USB device
             if (hidManager == NULL) {
                 hidManager = IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDOptionsTypeNone);
                 IOHIDManagerRegisterDeviceMatchingCallback(hidManager, match_callback, NULL);
@@ -129,6 +241,7 @@ static void __XPC_Peer_Event_Handler(xpc_connection_t connection,
             CFDictionaryRef match = matching_dictionary_create((int)idVendor, (int)idProduct, 1, 6);
             IOHIDManagerSetDeviceMatching(hidManager, match);
             CFRelease(match);
+            usb_device_deconfigure((int)idVendor, (int)idProduct, true);
         }
         xpc_connection_t remote = xpc_dictionary_get_remote_connection(event);
         xpc_object_t reply = xpc_dictionary_create_reply(event);
@@ -147,7 +260,14 @@ static void __XPC_Connection_Handler(xpc_connection_t connection) {
 }
 
 void signalHandler(int signum) {
-    syslog(LOG_NOTICE, "Received signal %d. Cleaning up...", signum);
+    ylog( "Received signal %d. Cleaning up...", signum);
+    if (usbDeviceDeconfigured && usbDevice != NULL) {
+        (*usbDevice)->SetConfiguration(usbDevice, savedConfiguration);
+        (*usbDevice)->USBDeviceClose(usbDevice);
+        (*usbDevice)->Release(usbDevice);
+        usbDevice = NULL;
+        usbDeviceDeconfigured = false;
+    }
     if (hidDevice != NULL) {
         IOHIDDeviceClose(hidDevice, kIOHIDOptionsTypeSeizeDevice);
         hidDevice = NULL;
@@ -161,20 +281,20 @@ void signalHandler(int signum) {
 int main(int argc, const char *argv[]) {
     signal(SIGINT, signalHandler);
     signal(SIGTERM, signalHandler);
-    xpc_connection_t service = xpc_connection_create_mach_service("com.pallotron.yubiswitch.helper",
+    xpc_connection_t service = xpc_connection_create_mach_service("com.zgilburd.yubiswitch.helper",
                                                                   dispatch_get_main_queue(),
                                                                   XPC_CONNECTION_MACH_SERVICE_LISTENER);
-    
+
     if (!service) {
-        syslog(LOG_CRIT, "Failed to create service.");
+        ylog( "Failed to create service.");
         exit(EXIT_FAILURE);
     }
-    
-    syslog(LOG_NOTICE, "Configuring connection event handler for helper");
+
+    ylog( "Configuring connection event handler for helper");
     xpc_connection_set_event_handler(service, ^(xpc_object_t connection) {
         __XPC_Connection_Handler(connection);
     });
-    
+
     xpc_connection_resume(service);
     CFRunLoopRun();
     dispatch_main();

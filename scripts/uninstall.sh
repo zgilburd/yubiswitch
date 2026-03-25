@@ -13,13 +13,13 @@ echo "Uninstalling yubiswitch..."
 
 echo "Killing yubiswitch and helper processes..."
 pkill -f yubiswitch.app > /dev/null 2>&1
-pkill -f com.pallotron.yubiswitch.helper > /dev/null 2>&1
+pkill -f com.zgilburd.yubiswitch.helper > /dev/null 2>&1
 
 
 # Stop and remove launchctl service
 echo "Stopping and removing launchctl service..."
-launchctl stop com.pallotron.yubiswitch.helper > /dev/null 2>&1
-launchctl remove com.pallotron.yubiswitch.helper > /dev/null 2>&1
+launchctl stop com.zgilburd.yubiswitch.helper > /dev/null 2>&1
+launchctl remove com.zgilburd.yubiswitch.helper > /dev/null 2>&1
 
 # Verify service is gone with retries since it seems to take a little while to
 # be removed.
@@ -37,8 +37,8 @@ while [ $attempts -lt $max_attempts ]; do
             echo "Warning: Yubiswitch service still found in 'launchctl list' after 1 minute."
             echo "Please manually stop and remove it with:"
             echo
-            echo "    sudo launchctl stop com.pallotron.yubiswitch.helper"
-            echo "    sudo launchctl remove com.pallotron.yubiswitch.helper"
+            echo "    sudo launchctl stop com.zgilburd.yubiswitch.helper"
+            echo "    sudo launchctl remove com.zgilburd.yubiswitch.helper"
             echo
             echo "and then run this script again."
             exit 1
@@ -51,16 +51,16 @@ done
 
 # Remove files
 echo "Removing yubiswitch files..."
-rm -f /Library/PrivilegedHelperTools/com.pallotron.yubiswitch.helper
-rm -f /Library/LaunchDaemons/com.pallotron.yubiswitch.helper.plist
+rm -f /Library/PrivilegedHelperTools/com.zgilburd.yubiswitch.helper
+rm -f /Library/LaunchDaemons/com.zgilburd.yubiswitch.helper.plist
 rm -rf /Applications/yubiswitch.app/
 
 # Check if files were removed successfully
-if [ -f "/Library/PrivilegedHelperTools/com.pallotron.yubiswitch.helper" ] || [ -f "/Library/LaunchDaemons/com.pallotron.yubiswitch.helper.plist" ] || [ -d "/Applications/yubiswitch.app/" ]; then
+if [ -f "/Library/PrivilegedHelperTools/com.zgilburd.yubiswitch.helper" ] || [ -f "/Library/LaunchDaemons/com.zgilburd.yubiswitch.helper.plist" ] || [ -d "/Applications/yubiswitch.app/" ]; then
     echo "Warning: Failed to remove some yubiswitch files. Please try removing them manually with:
 
-    sudo rm -f /Library/PrivilegedHelperTools/com.pallotron.yubiswitch.helper
-    sudo rm -f /Library/LaunchDaemons/com.pallotron.yubiswitch.helper.plist
+    sudo rm -f /Library/PrivilegedHelperTools/com.zgilburd.yubiswitch.helper
+    sudo rm -f /Library/LaunchDaemons/com.zgilburd.yubiswitch.helper.plist
     sudo rm -rf /Applications/yubiswitch.app/"
     exit 1
 else
