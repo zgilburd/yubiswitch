@@ -15,35 +15,37 @@
         <customObject id="-3" userLabel="Application"/>
         <window title="About YubiSwitch" allowsToolTipsWhenApplicationIsInactive="NO" autorecalculatesKeyViewLoop="NO" oneShot="NO" releasedWhenClosed="NO" showsToolbarButton="NO" animationBehavior="default" id="iua-nl-brR">
             <windowStyleMask key="styleMask" titled="YES" closable="YES"/>
-            <rect key="contentRect" x="478" y="350" width="516" height="163"/>
+            <rect key="contentRect" x="478" y="350" width="516" height="220"/>
             <rect key="screenRect" x="0.0" y="0.0" width="1440" height="878"/>
             <view key="contentView" id="mj8-W9-iqS">
-                <rect key="frame" x="0.0" y="0.0" width="516" height="163"/>
+                <rect key="frame" x="0.0" y="0.0" width="516" height="220"/>
                 <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                 <subviews>
                     <textField verticalHuggingPriority="750" horizontalCompressionResistancePriority="250" fixedFrame="YES" setsMaxLayoutWidthAtFirstLayout="YES" translatesAutoresizingMaskIntoConstraints="NO" id="g4i-Yd-zAT">
-                        <rect key="frame" x="17" y="7" width="482" height="136"/>
+                        <rect key="frame" x="17" y="7" width="482" height="193"/>
                         <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
                         <textFieldCell key="cell" lineBreakMode="charWrapping" sendsActionOnEndEditing="YES" alignment="center" id="qob-p2-6H3">
                             <font key="font" metaFont="system"/>
                             <string key="title">YubiSwitch
 
-Enable/Disable Yubikey Nano
+Enable/Disable YubiKey with full USB-level power control
 
 Copyright (C) 2013  Angelo "pallotron" Failla &lt;pallotron@freaknet.org&gt;
+http://github.com/pallotron/yubiswitch
 
-http://github.com/pallotron/yubiswitch</string>
+Forked by Zack Gilburd &lt;zack@gilburd.com&gt;
+http://github.com/zgilburd/yubiswitch</string>
                             <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
                             <color key="backgroundColor" name="controlColor" catalog="System" colorSpace="catalog"/>
                         </textFieldCell>
                     </textField>
                     <imageView horizontalHuggingPriority="251" verticalHuggingPriority="251" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="wPQ-RI-T3e">
-                        <rect key="frame" x="176" y="115" width="48" height="48"/>
+                        <rect key="frame" x="176" y="172" width="48" height="48"/>
                         <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
                         <imageCell key="cell" refusesFirstResponder="YES" alignment="left" imageScaling="proportionallyDown" image="AppIcon" id="83S-gz-IrG"/>
                     </imageView>
                     <textField identifier="version" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="Jqy-bb-T5J">
-                        <rect key="frame" x="295" y="126" width="38" height="17"/>
+                        <rect key="frame" x="295" y="183" width="80" height="17"/>
                         <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
                         <textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" sendsActionOnEndEditing="YES" title="versionlabel" id="bel-xJ-VS9">
                             <font key="font" metaFont="system"/>
