@@ -34,7 +34,7 @@ This status bar app allows you to avoid sending those accidental OTP passwords b
 
 # Download
 
-Download the latest version in DMG format from [github release page here](https://github.com/pallotron/yubiswitch/releases/).
+Download the latest version in DMG format from [the releases page](https://github.com/zgilburd/yubiswitch/releases/).
 
 # Running
 
@@ -138,7 +138,7 @@ When you want to create a release:
 - Tag repo with vx.y, ie `git tag -a -m 'comment that describe the changes' v0.2`
 - Archive build from Xcode and find path to binary (Yubiswitch.app)
 - Run script: `cd dmg/ && bash createdmg.sh <PATH TO APP>`
-- Get the file at `/tmp/yubiswitch\_$VERSION.dmg` and attach the binary to the release in the new release in [the github page](https://github.com/pallotron/yubiswitch/releases/)
+- Get the file at `/tmp/yubiswitch\_$VERSION.dmg` and attach the binary to the release in the new release in [the releases page](https://github.com/zgilburd/yubiswitch/releases/)
 
 # Dependencies
 
@@ -155,7 +155,7 @@ You can uninstall yubiswitch using the provided script or manually following the
 To automatically uninstall yubiswitch, run this command as root:
 
 ```
-$ curl -fsSL https://raw.githubusercontent.com/pallotron/yubiswitch/master/scripts/uninstall.sh | sudo zsh
+$ curl -fsSL https://raw.githubusercontent.com/zgilburd/yubiswitch/master/scripts/uninstall.sh | sudo zsh
 ```
 
 ## Manual uninstall

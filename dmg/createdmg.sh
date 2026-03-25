@@ -38,9 +38,7 @@ if [ ! $OUTPUT ]; then
   exit 1
 fi
 
-codesign -s "Developer ID Application: Supratude Limited (YX97W249KL)" $OUTPUT
-xcrun notarytool submit $OUTPUT --keychain-profile YubiswitchNotary --wait
-xcrun stapler staple $OUTPUT
+codesign -s "Apple Development: Zachary Gilburd (VFPV4FK7S2)" $OUTPUT
 
 echo "Removing tmpdir"
 rm -rf $tmpdir
