@@ -1,5 +1,14 @@
 # yubiswitch
 
+## Why this fork?
+
+- **Full USB-level disable.** Other yubiswitch builds only block HID (the keyboard interface). This fork sets the USB configuration to 0, which completely deconfigures the YubiKey. No green lights, no capacitive touch response, no sleep interrupts, no battery drain.
+- **macOS Tahoe only.** This code was modified to support macOS Tahoe (26.4 at time of writing). There are no intentions of backporting to earlier versions.
+
+Upstream: [pallotron/yubiswitch](https://github.com/pallotron/yubiswitch)
+
+---
+
 # Overview
 
 `yubiswitch` is an OSX status bar application to enable/disable a [Yubikey Nano or Neo](https://www.yubico.com/products/yubikey-hardware/) from Yubico.
