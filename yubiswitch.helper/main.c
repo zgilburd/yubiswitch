@@ -87,74 +87,116 @@ static IOUSBDeviceInterface **usb_device_get(int vendorID, int productID) {
     return dev;
 }
 
+// Find IOUSBHostDevice service by VID/PID for IORegistry operations.
+static io_service_t usb_service_find(int vendorID, int productID) {
+    CFMutableDictionaryRef matchDict = IOServiceMatching("IOUSBHostDevice");
+    if (!matchDict) return 0;
+    CFNumberRef vidRef = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &vendorID);
+    CFNumberRef pidRef = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &productID);
+    CFDictionarySetValue(matchDict, CFSTR("idVendor"), vidRef);
+    CFDictionarySetValue(matchDict, CFSTR("idProduct"), pidRef);
+    CFRelease(vidRef);
+    CFRelease(pidRef);
+    return IOServiceGetMatchingService(kIOMainPortDefault, matchDict);
+}
+
 // Deconfigure/reconfigure the USB device. Setting configuration to 0
-// releases all interfaces (HID, FIDO, CCID), making the device inert —
-// the LED and capacitive touch sensor won't respond.
+// releases all interfaces (HID, FIDO, CCID), making the device inert.
+// After deconfiguring, we suspend the device and release the handle so
+// the kernel can freely power-manage it (including during sleep).
 static void usb_device_deconfigure(int vendorID, int productID, Boolean deconfigure) {
     if (deconfigure && usbDeviceDeconfigured) return;
     if (!deconfigure && !usbDeviceDeconfigured) return;
 
-    if (!deconfigure && usbDevice != NULL) {
-        // Restore the original configuration
+    if (!deconfigure) {
+        // Re-acquire the device (handle was released after disable)
+        IOUSBDeviceInterface **dev = usb_device_get(vendorID, productID);
+        if (!dev) {
+            ylog("USB device not found for re-enable");
+            usbDeviceDeconfigured = false;
+            return;
+        }
+        IOReturn r = (*dev)->USBDeviceOpenSeize(dev);
+        if (r != kIOReturnSuccess) {
+            r = (*dev)->USBDeviceOpen(dev);
+            if (r != kIOReturnSuccess) {
+                ylog("Failed to open USB device for re-enable: 0x%x", r);
+                (*dev)->Release(dev);
+                return;
+            }
+        }
+        // Resume from suspend, then restore configuration
+        (*dev)->USBDeviceSuspend(dev, false);
         ylog("Restoring USB configuration %d", savedConfiguration);
-        IOReturn r = (*usbDevice)->SetConfiguration(usbDevice, savedConfiguration);
+        r = (*dev)->SetConfiguration(dev, savedConfiguration);
         if (r == kIOReturnSuccess) {
             ylog("USB device reconfigured (restored)");
         } else {
-            ylog("Failed to restore USB config: 0x%x", r);
-            // Try a USB reset as fallback to fully re-enumerate
-            (*usbDevice)->ResetDevice(usbDevice);
-            ylog("USB device reset issued");
+            ylog("Failed to restore USB config: 0x%x, resetting", r);
+            (*dev)->ResetDevice(dev);
         }
-        (*usbDevice)->USBDeviceClose(usbDevice);
-        (*usbDevice)->Release(usbDevice);
-        usbDevice = NULL;
+        (*dev)->USBDeviceClose(dev);
+        (*dev)->Release(dev);
         usbDeviceDeconfigured = false;
         return;
     }
 
-    usbDevice = usb_device_get(vendorID, productID);
-    if (!usbDevice) return;
+    // --- Disable path ---
+    IOUSBDeviceInterface **dev = usb_device_get(vendorID, productID);
+    if (!dev) return;
 
-    IOReturn r = (*usbDevice)->USBDeviceOpenSeize(usbDevice);
+    IOReturn r = (*dev)->USBDeviceOpenSeize(dev);
     if (r != kIOReturnSuccess) {
-        ylog("Failed to open/seize USB device: 0x%x, trying regular open", r);
-        r = (*usbDevice)->USBDeviceOpen(usbDevice);
+        r = (*dev)->USBDeviceOpen(dev);
         if (r != kIOReturnSuccess) {
             ylog("Failed to open USB device: 0x%x", r);
-            (*usbDevice)->Release(usbDevice);
-            usbDevice = NULL;
+            (*dev)->Release(dev);
             return;
         }
     }
 
     // Save current configuration
-    r = (*usbDevice)->GetConfiguration(usbDevice, &savedConfiguration);
+    r = (*dev)->GetConfiguration(dev, &savedConfiguration);
     if (r != kIOReturnSuccess) {
         ylog("Failed to get current config: 0x%x, assuming 1", r);
         savedConfiguration = 1;
     }
     ylog("Current USB configuration: %d", savedConfiguration);
 
-    // Set configuration to 0 (unconfigured)
-    r = (*usbDevice)->SetConfiguration(usbDevice, 0);
+    // Set configuration to 0 (unconfigured) — kills all interfaces
+    r = (*dev)->SetConfiguration(dev, 0);
     if (r == kIOReturnSuccess) {
         ylog("USB device deconfigured (config set to 0)");
-        usbDeviceDeconfigured = true;
     } else {
-        ylog("Failed to deconfigure USB device: 0x%x", r);
-        // Try USB device suspend as fallback
-        r = (*usbDevice)->USBDeviceSuspend(usbDevice, true);
-        if (r == kIOReturnSuccess) {
-            ylog("USB device suspended (fallback)");
-            usbDeviceDeconfigured = true;
-        } else {
-            ylog("USB suspend fallback also failed: 0x%x", r);
-            (*usbDevice)->USBDeviceClose(usbDevice);
-            (*usbDevice)->Release(usbDevice);
-            usbDevice = NULL;
-        }
+        ylog("Failed to deconfigure: 0x%x", r);
     }
+
+    // Suspend the device — tells USB stack to minimize power
+    r = (*dev)->USBDeviceSuspend(dev, true);
+    if (r == kIOReturnSuccess) {
+        ylog("USB device suspended");
+    } else {
+        ylog("USB suspend failed: 0x%x (non-fatal)", r);
+    }
+
+    // Release the handle so the kernel can power-manage freely.
+    // Without this, PowerOverrideOn=Yes keeps DevicePowerState=2.
+    (*dev)->USBDeviceClose(dev);
+    (*dev)->Release(dev);
+    ylog("Released USB device handle for kernel power management");
+
+    // Try to disable remote wake via IORegistry
+    io_service_t svc = usb_service_find(vendorID, productID);
+    if (svc) {
+        IORegistryEntrySetCFProperty(svc,
+            CFSTR("kUSBHostDevicePropertyRemoteWakeOverride"),
+            kCFBooleanFalse);
+        ylog("Disabled remote wake override");
+        IOObjectRelease(svc);
+    }
+
+    usbDeviceDeconfigured = true;
+    usbDevice = NULL;
 }
 
 static void handle_removal_callback(void *context, IOReturn result,
