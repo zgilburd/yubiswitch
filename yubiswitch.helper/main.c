@@ -29,6 +29,7 @@
 #include <IOKit/hid/IOHIDManager.h>
 #include <IOKit/hid/IOHIDKeys.h>
 #include <IOKit/hid/IOHIDDevice.h>
+#include <IOKit/pwr_mgt/IOPMLib.h>
 #include <signal.h>
 #import <ServiceManagement/ServiceManagement.h>
 #import <Security/Authorization.h>
@@ -39,6 +40,15 @@ IOHIDDeviceRef hidDevice;
 IOUSBDeviceInterface **usbDevice;
 Boolean usbDeviceDeconfigured;
 UInt8 savedConfiguration;
+
+// VID/PID of the last disabled device, for re-asserting after wake
+static int disabledVendorID;
+static int disabledProductID;
+
+// Power management notification port and notifier
+static io_connect_t pmRootPort;
+static IONotificationPortRef pmNotifyPort;
+static io_object_t pmNotifier;
 
 static void match_set(CFMutableDictionaryRef dict, CFStringRef key, int value) {
     CFNumberRef number = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &value);
@@ -196,6 +206,8 @@ static void usb_device_deconfigure(int vendorID, int productID, Boolean deconfig
     }
 
     usbDeviceDeconfigured = true;
+    disabledVendorID = vendorID;
+    disabledProductID = productID;
     usbDevice = NULL;
 }
 
@@ -320,9 +332,45 @@ void signalHandler(int signum) {
     }
 }
 
+// System power callback — re-assert USB disable after wake
+static void powerCallback(void *refCon, io_service_t service,
+                          natural_t messageType, void *messageArgument) {
+    switch (messageType) {
+        case kIOMessageSystemWillSleep:
+            IOAllowPowerChange(pmRootPort, (long)messageArgument);
+            break;
+        case kIOMessageCanSystemSleep:
+            IOAllowPowerChange(pmRootPort, (long)messageArgument);
+            break;
+        case kIOMessageSystemHasPoweredOn:
+            // System just woke — re-assert disable if active
+            if (usbDeviceDeconfigured && disabledVendorID != 0) {
+                ylog("Wake detected — re-asserting USB disable");
+                // Brief delay for USB stack to re-enumerate
+                usleep(500000);
+                usbDeviceDeconfigured = false; // allow re-entry
+                usb_device_deconfigure(disabledVendorID, disabledProductID, true);
+            }
+            break;
+        default:
+            break;
+    }
+}
+
 int main(int argc, const char *argv[]) {
     signal(SIGINT, signalHandler);
     signal(SIGTERM, signalHandler);
+
+    // Register for system sleep/wake notifications
+    pmRootPort = IORegisterForSystemPower(NULL, &pmNotifyPort,
+                                          powerCallback, &pmNotifier);
+    if (pmRootPort) {
+        CFRunLoopAddSource(CFRunLoopGetMain(),
+                           IONotificationPortGetRunLoopSource(pmNotifyPort),
+                           kCFRunLoopCommonModes);
+        ylog("Registered for system power notifications");
+    }
+
     xpc_connection_t service = xpc_connection_create_mach_service("com.zgilburd.yubiswitch.helper",
                                                                   dispatch_get_main_queue(),
                                                                   XPC_CONNECTION_MACH_SERVICE_LISTENER);
