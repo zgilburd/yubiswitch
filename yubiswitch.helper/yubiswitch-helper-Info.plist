@@ -9,7 +9,7 @@
 	<key>CFBundleName</key>
 	<string>yubiswitch.helper</string>
 	<key>CFBundleVersion</key>
-	<string>6</string>
+	<string>9</string>
 	<key>SMAuthorizedClients</key>
 	<array>
 		<string>anchor apple generic and identifier &quot;com.zgilburd.yubiswitch&quot; and certificate leaf[subject.OU] = &quot;39YQGAPYYW&quot;</string>

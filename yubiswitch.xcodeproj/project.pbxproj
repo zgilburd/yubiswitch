@@ -14,6 +14,7 @@
 		593929681B21058600905E94 /* ShortcutRecorder.framework in CopyFiles */ = {isa = PBXBuildFile; fileRef = 59013C8517F56F0F00005A7E /* ShortcutRecorder.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		5939296C1B2108DC00905E94 /* com.zgilburd.yubiswitch.helper in CopyFiles */ = {isa = PBXBuildFile; fileRef = 593AE45D1B1371B700FCA848 /* com.zgilburd.yubiswitch.helper */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		593AE4601B1371B700FCA848 /* main.c in Sources */ = {isa = PBXBuildFile; fileRef = 593AE45F1B1371B700FCA848 /* main.c */; };
+		63A7A01AFA6C4F6B9D000001 /* usb_policy.c in Sources */ = {isa = PBXBuildFile; fileRef = 63A7A01AFA6C4F6B9D000002 /* usb_policy.c */; };
 		593B4E0917F09362003195DE /* AboutWindowController.m in Sources */ = {isa = PBXBuildFile; fileRef = 593B4E0717F09362003195DE /* AboutWindowController.m */; };
 		593B4E0A17F09362003195DE /* AboutWindowController.xib in Resources */ = {isa = PBXBuildFile; fileRef = 593B4E0817F09362003195DE /* AboutWindowController.xib */; };
 		593B4E0E17F0A2BD003195DE /* PreferencesController.m in Sources */ = {isa = PBXBuildFile; fileRef = 593B4E0C17F0A2BD003195DE /* PreferencesController.m */; };
@@ -116,6 +117,9 @@
 		591B90A81B91A62900D1C1A7 /* ComputerStateMonitor.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = ComputerStateMonitor.m; sourceTree = "<group>"; };
 		593AE45D1B1371B700FCA848 /* com.zgilburd.yubiswitch.helper */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = com.zgilburd.yubiswitch.helper; sourceTree = BUILT_PRODUCTS_DIR; };
 		593AE45F1B1371B700FCA848 /* main.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = main.c; sourceTree = "<group>"; };
+		63A7A01AFA6C4F6B9D000002 /* usb_policy.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = usb_policy.c; sourceTree = "<group>"; };
+		63A7A01AFA6C4F6B9D000003 /* usb_policy.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = usb_policy.h; sourceTree = "<group>"; };
+		63A7A01AFA6C4F6B9D000004 /* client_identity.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = client_identity.h; sourceTree = "<group>"; };
 		593B4E0617F09362003195DE /* AboutWindowController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = AboutWindowController.h; sourceTree = "<group>"; };
 		593B4E0717F09362003195DE /* AboutWindowController.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = AboutWindowController.m; sourceTree = "<group>"; };
 		593B4E0817F09362003195DE /* AboutWindowController.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; path = AboutWindowController.xib; sourceTree = "<group>"; };
@@ -206,6 +210,9 @@
 				63AE428328E63FB50058E8B4 /* com.zgilburd.yubiswitch.helper.entitlements */,
 				59EF407C1B13E1490000BB5F /* yubiswitch-helper-Info.plist */,
 				593AE45F1B1371B700FCA848 /* main.c */,
+				63A7A01AFA6C4F6B9D000002 /* usb_policy.c */,
+				63A7A01AFA6C4F6B9D000003 /* usb_policy.h */,
+				63A7A01AFA6C4F6B9D000004 /* client_identity.h */,
 				59EF40681B13CDC20000BB5F /* yubiswitch-helper-launchd.plist */,
 			);
 			path = yubiswitch.helper;
@@ -469,6 +476,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				593AE4601B1371B700FCA848 /* main.c in Sources */,
+				63A7A01AFA6C4F6B9D000001 /* usb_policy.c in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

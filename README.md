@@ -2,7 +2,7 @@
 
 ## Why this fork?
 
-- **Full USB-level disable.** Other yubiswitch builds only block HID (the keyboard input from OTP touch). This fork sets the USB configuration to 0, which completely deconfigures the YubiKey. No green lights, no capacitive touch response, no sleep interrupts, no battery drain.
+- **Full USB-level disable.** Other yubiswitch builds only block HID (the keyboard input from OTP touch). This fork sets the USB configuration to 0 and suspends the device to deconfigure the YubiKey. No green lights, no capacitive touch response, no sleep interrupts, no battery drain.
 - **macOS Tahoe only.** This code was modified to support macOS Tahoe (26.4 at time of writing). There are no intentions of backporting to earlier versions.
 
 Upstream: [pallotron/yubiswitch](https://github.com/pallotron/yubiswitch)
@@ -112,6 +112,12 @@ Preference window:
 
 # Known Issues
 
+- A question mark in the menu bar means YubiSwitch could not confirm the key's state. Try enabling it again after the USB device has finished appearing. If the privileged helper restarted while the key was deconfigured, enabling can recover a device with exactly one valid USB configuration. For a device with multiple configurations, unplug and reconnect it rather than guessing the prior configuration. AppleScript exposes `statusKnown` to distinguish an unknown state from a confirmed disabled state.
+- An enabled indication confirms that a matching key is attached and its selected USB configuration and interfaces have returned. If the key is disconnected, its status remains unknown even though the helper has cleared the disabled policy. Interface enumeration does not prove that an OTP, FIDO, or smart-card authentication succeeds. Test the function you use after installing a properly signed build.
+- The Vendor ID and Product ID filter applies to every matching attached device. YubiSwitch keeps separate restore information for matching devices at different USB locations.
+- If the app exits unexpectedly, the helper attempts to restore the key when its controlling XPC connection closes. Confirm this recovery on a signed build before relying on it.
+- With `disableAtLockSleep` enabled, launching YubiSwitch while the screen is locked or its lock state is unknown keeps the key enabled for login. Failed startup and screen lock/unlock actions retry against the current session state. If the automatic shutoff timer expires while lock state is unavailable or a disable request fails, it retries until the key is confirmed off. An active retry reconciles a missed unlock notification only after the session reports unlocked across a retry interval.
+- Changing the automatic switch-off setting updates a pending timer. The delay must be a positive number of seconds; invalid delays are rejected in Preferences and cannot be enabled from the status menu.
 - The app's default settings support the Nano. If you have a different model, go into the app's `Preferences` by clicking on the menu icon, then set the the `Product ID` to `0x0114` (or whatever your ProductID is) see: [How to find ProductID and VendorID](#how-to-find-productid-and-vendorid).
 - If your YubiKey is not working, you might want to confirm the `Product ID` and `Vendor ID` follow the how to find your ProductID and VendorID steps below
 - This app only works with recent version of OSX because it relies on the Notification Centre. OSX 10.8.x and above would do it. Sorry about that.
@@ -132,6 +138,22 @@ Preference window:
 # How to create DMG for distribution
 
 You need to make sure that you sign all applications and frameworks, also you need to make sure the `dmg` file is signed (the bash script `createdmg.sh` does this for you). You need to sign the app with an official Mac developer profile.
+
+The USB policy and client-requirement checks can run without a signing identity:
+
+```sh
+clang -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined tests/usb_policy_test.c yubiswitch.helper/usb_policy.c -o /tmp/yubiswitch-usb-policy-test
+/tmp/yubiswitch-usb-policy-test
+clang -std=c11 -Wall -Wextra -Werror tests/client_identity_test.c -framework Security -framework CoreFoundation -o /tmp/yubiswitch-client-identity-test
+/tmp/yubiswitch-client-identity-test yubiswitch.helper/yubiswitch-helper-Info.plist
+clang -fobjc-arc -Wall -Wextra -Werror tests/screen_lock_timer_test.m yubiswitch/ComputerStateMonitor.m -framework Foundation -framework AppKit -framework CoreGraphics -framework IOKit -framework ServiceManagement -framework Security -o /tmp/yubiswitch-screen-lock-test
+/tmp/yubiswitch-screen-lock-test
+xcodebuild -project yubiswitch.xcodeproj -scheme yubiswitch -configuration Debug -destination 'generic/platform=macOS' -derivedDataPath /tmp/yubiswitch-derived MACOSX_DEPLOYMENT_TARGET=13.0 CODE_SIGNING_ALLOWED=NO build
+clang -fobjc-arc -include yubiswitch/yubiswitch-Prefix.pch -include ApplicationServices/ApplicationServices.h tests/app_lock_policy_test.m yubiswitch/AppDelegate.m yubiswitch/YubiKey.m yubiswitch/ComputerStateMonitor.m yubiswitch/PreferencesController.m yubiswitch/AboutWindowController.m -F/tmp/yubiswitch-derived/Build/Products/Debug -framework ShortcutRecorder -Wl,-rpath,/tmp/yubiswitch-derived/Build/Products/Debug -framework AppKit -framework Foundation -framework UserNotifications -framework ServiceManagement -framework Security -framework IOKit -framework CoreGraphics -framework ApplicationServices -o /tmp/yubiswitch-app-lock-policy-test
+/tmp/yubiswitch-app-lock-policy-test
+```
+
+An unsigned Xcode build is a compile check only. Do not launch it against an existing helper installation. The helper rejects XPC requests from apps that do not match its signed client requirement. Installing and cycling the device requires a signing identity accepted by the app and helper requirements.
 
 When you want to create a release:
 

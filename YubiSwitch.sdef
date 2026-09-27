@@ -11,7 +11,8 @@
         </command>
         <class name="yubikey" code="yubi" description="Yubikey">
             <cocoa class="NSApplication"/>
-            <property name="status" code="stat" type="boolean" description="Is the yubikey enabled?"/>
+            <property name="status" code="stat" type="boolean" description="Is the YubiKey confirmed enabled? Returns false when statusKnown is false."/>
+            <property name="statusKnown" code="stkn" type="boolean" description="Was the YubiKey state confirmed by the helper?"/>
         </class>
     </suite>
 </dictionary>

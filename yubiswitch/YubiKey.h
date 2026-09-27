@@ -30,15 +30,30 @@
 #include <IOKit/usb/USBSpec.h>
 #include <IOKit/hid/IOHIDManager.h>
 #include <IOKit/hid/IOHIDKeys.h>
+#include <xpc/xpc.h>
+#include <stdatomic.h>
+#include <stdint.h>
 
 
 @interface YubiKey : NSObject {
     BOOL suspend;
+    BOOL requestedDisabled;
+    BOOL stateKnown;
+    BOOL changingState;
+    BOOL lockOnRemoval;
+    NSString *selectedVendorID;
+    NSString *selectedProductID;
+    IOHIDManagerRef removalManager;
+    xpc_connection_t helperConnection;
+    uint64_t helperConnectionGeneration;
+    atomic_uint_fast64_t completedActionGeneration;
 }
 
 -(id)init;
 -(BOOL)action:(NSString *)action;
 -(BOOL)state;
+-(BOOL)isStateKnown;
+-(BOOL)isChangingState;
 -(BOOL)enable;
 -(BOOL)disable;
 -(void)notificationReloadHandler:(NSNotification *)notification;

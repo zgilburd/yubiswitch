@@ -34,5 +34,6 @@
 -(IBAction)SetDefaultsButton:(id)sender;
 
 @property (assign) IBOutlet SRRecorderControl *hotkeyrecorder;
++ (NSTimeInterval)validatedSwitchOffInterval:(id)value;
 
 @end

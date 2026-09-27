@@ -24,6 +24,14 @@
 // itself controls the USB device
 
 #include <IOKit/hid/IOHIDManager.h>
+#include <stdint.h>
+
+@interface YubiKey ()
+- (BOOL)action:(NSString *)action vendorID:(NSString *)vendor
+       productID:(NSString *)product;
+- (BOOL)registerKeyRemovalWithVendorID:(NSString *)vendor
+                               productID:(NSString *)product;
+@end
 
 @implementation YubiKey
 
@@ -54,8 +62,10 @@
                 exit(EXIT_FAILURE);
             }
         }
-        [self disable];
-        [self registerKeyRemoval];
+        lockOnRemoval = YES;
+        if (![self registerKeyRemoval]) {
+            [self raiseAlertWindow:@"Could not monitor YubiKey removal. The unplug lock is unavailable until device monitoring succeeds."];
+        }
     }
     return self;
 
@@ -139,28 +149,13 @@
     if (status != errAuthorizationSuccess) {
         NSLog(@"Failed to bless helper");
     } else {
-        // Remove a stale LaunchDaemon plist before re-blessing. A plist with
-        // wrong ownership (e.g. left over from a previous install) will cause
-        // launchctl bootstrap to fail with an I/O error. We use the
-        // AuthorizationRef we already hold to perform a privileged removal.
-        NSString *plistPath = [NSString stringWithFormat:
-                               @"/Library/LaunchDaemons/%@.plist", label];
-        char *rmArgs[] = {"-f", (char *)[plistPath fileSystemRepresentation], NULL};
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-        AuthorizationExecuteWithPrivileges(authRef, "/bin/rm",
-                                           kAuthorizationFlagDefaults, rmArgs, NULL);
-#pragma clang diagnostic pop
-
-        /* This does all the work of verifying the helper tool against the
-         * application
-         * and vice-versa. Once verification has passed, the embedded launchd.plist
-         * is extracted and placed in /Library/LaunchDaemons and then loaded. The
-         * executable is placed in /Library/PrivilegedHelperTools.
-         */
+        // SMJobBless validates both signatures before replacing the installed
+        // helper. Preserve the current LaunchDaemon if validation fails.
         result = SMJobBless(kSMDomainSystemLaunchd, (__bridge CFStringRef)label,
                             authRef, (void *)error);
     }
+
+    if (authRef != NULL) AuthorizationFree(authRef, kAuthorizationFlagDefaults);
 
     return result;
 }
@@ -175,64 +170,162 @@
 
 - (void)notificationReloadHandler:(NSNotification *)notification {
     if ([[notification name] isEqualToString:@"changeDefaultsPrefs"]) {
-        [self disable];
+        NSMutableDictionary *preferences = (NSMutableDictionary *)[notification object];
+        NSString *vendor = preferences[@"hotKeyVendorID"];
+        NSString *product = preferences[@"hotKeyProductID"];
+        if ([vendor isEqualToString:selectedVendorID] &&
+            [product isEqualToString:selectedProductID] &&
+            removalManager != NULL) {
+            preferences[@"applySucceeded"] = @YES;
+            return;
+        }
+        NSString *oldVendor = selectedVendorID;
+        NSString *oldProduct = selectedProductID;
+        BOOL changedHelper = NO;
+        // Unknown physical state does not imply a request to keep the key off.
+        // KeyOn clears the helper's disabled policy even when the key is absent
+        // or the restore has not completed yet.
+        if (requestedDisabled) {
+            if (![self action:@"disable" vendorID:vendor productID:product]) {
+                preferences[@"applySucceeded"] = @NO;
+                return;
+            }
+            changedHelper = ![vendor isEqualToString:oldVendor] ||
+                ![product isEqualToString:oldProduct];
+        }
+        if (![self registerKeyRemovalWithVendorID:vendor productID:product]) {
+            if (changedHelper && oldVendor != nil && oldProduct != nil) {
+                if (![self action:@"disable" vendorID:oldVendor
+                            productID:oldProduct]) {
+                    // A failed rollback can leave either filter disabled.
+                    // Restore every saved attachment before retrying the old
+                    // policy, then make any unresolved state visible.
+                    BOOL restored = [self action:@"enable" vendorID:vendor
+                                           productID:product];
+                    BOOL oldDisabled = restored &&
+                        [self action:@"disable" vendorID:oldVendor
+                                    productID:oldProduct];
+                    if (!oldDisabled) {
+                        stateKnown = NO;
+                        selectedVendorID = nil;
+                        selectedProductID = nil;
+                        [self raiseAlertWindow:@"The YubiKey filter could not be restored. Its state is unknown. Check the key connection and use the menu to enable it before trying again."];
+                    }
+                }
+            } else if (changedHelper) {
+                // No previous filter exists, so clear the new helper policy.
+                if (![self action:@"enable" vendorID:vendor productID:product]) {
+                    stateKnown = NO;
+                    selectedVendorID = nil;
+                    selectedProductID = nil;
+                    [self raiseAlertWindow:@"The YubiKey state could not be restored. Check the key connection and use the menu to enable it before trying again."];
+                }
+            }
+            preferences[@"applySucceeded"] = @NO;
+            return;
+        }
+        preferences[@"applySucceeded"] = @YES;
     }
 }
 
+static BOOL parseHexID(NSString *text, unsigned int *value) {
+    if (![text isKindOfClass:[NSString class]]) return NO;
+    NSScanner *scanner = [NSScanner scannerWithString:text];
+    *value = 0;
+    return [scanner scanHexInt:value] && [scanner isAtEnd] &&
+           *value > 0 && *value <= UINT16_MAX;
+}
+
 - (BOOL)action:(NSString *)action {
-    xpc_connection_t connection = xpc_connection_create_mach_service(
-                                                                     "com.zgilburd.yubiswitch.helper", NULL,
-                                                                     XPC_CONNECTION_MACH_SERVICE_PRIVILEGED);
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    return [self action:action
+              vendorID:[defaults stringForKey:@"hotKeyVendorID"]
+             productID:[defaults stringForKey:@"hotKeyProductID"]];
+}
 
-    if (!connection) {
-        [self raiseAlertWindow:@"Failed to create XPC connection with helper"];
-        exit(EXIT_FAILURE);
+- (BOOL)action:(NSString *)action vendorID:(NSString *)vendor
+       productID:(NSString *)product {
+    BOOL enabling = [action isEqualToString:@"enable"];
+    if (!enabling && ![action isEqualToString:@"disable"]) return NO;
+    if (enabling) lockOnRemoval = YES;
+    unsigned int idVendor = 0;
+    unsigned int idProduct = 0;
+    if (!parseHexID(vendor, &idVendor) ||
+        !parseHexID(product, &idProduct)) {
+        stateKnown = NO;
+        NSLog(@"Invalid YubiKey vendor or product filter");
+        return NO;
     }
-
-    xpc_connection_set_event_handler(connection, ^(xpc_object_t event) {
-        xpc_type_t type = xpc_get_type(event);
-        if (type == XPC_TYPE_ERROR) {
+    requestedDisabled = !enabling;
+    if (helperConnection == NULL) {
+        helperConnection = xpc_connection_create_mach_service(
+            "com.zgilburd.yubiswitch.helper", NULL,
+            XPC_CONNECTION_MACH_SERVICE_PRIVILEGED);
+        if (helperConnection == NULL) {
+            [self raiseAlertWindow:@"Failed to create XPC connection with helper"];
+            stateKnown = NO;
+            return NO;
+        }
+        helperConnectionGeneration++;
+        uint64_t connectionGeneration = helperConnectionGeneration;
+        __weak YubiKey *weakSelf = self;
+        xpc_connection_set_event_handler(helperConnection, ^(xpc_object_t event) {
+            if (xpc_get_type(event) != XPC_TYPE_ERROR) return;
+            YubiKey *key = weakSelf;
+            if (key == nil) return;
+            BOOL invalid = event == XPC_ERROR_CONNECTION_INVALID;
+            uint_fast64_t completedGeneration = atomic_load_explicit(
+                &key->completedActionGeneration, memory_order_relaxed);
+            dispatch_async(dispatch_get_main_queue(), ^{
+                YubiKey *currentKey = weakSelf;
+                if (currentKey == nil ||
+                    currentKey->helperConnectionGeneration != connectionGeneration ||
+                    atomic_load_explicit(&currentKey->completedActionGeneration,
+                                         memory_order_relaxed) != completedGeneration) return;
+                currentKey->stateKnown = NO;
+                if (invalid) {
+                    xpc_connection_cancel(currentKey->helperConnection);
+                    currentKey->helperConnection = NULL;
+                }
+            });
             if (event == XPC_ERROR_CONNECTION_INTERRUPTED) {
-                // probably helper has been killed, relaunching it?
-                NSLog(@"XPC connection interupted.");
+                NSLog(@"XPC connection interrupted.");
             } else if (event == XPC_ERROR_CONNECTION_INVALID) {
-                NSLog(@"XPC connection invalid, releasing.");
+                NSLog(@"XPC connection invalid.");
+            } else if (event == XPC_ERROR_PEER_CODE_SIGNING_REQUIREMENT) {
+                NSLog(@"Helper rejected the app signing identity.");
             } else {
                 NSLog(@"Unexpected XPC connection error.");
             }
-        } else {
-            NSLog(@"Unexpected XPC connection event.");
-        }
-    });
+        });
+        xpc_connection_resume(helperConnection);
+    }
 
-    unsigned int idVendor = 0;
-    NSString *value =
-        [[NSUserDefaults standardUserDefaults] stringForKey:@"hotKeyVendorID"];
-    [[NSScanner scannerWithString:value] scanHexInt:&idVendor];
-
-    unsigned int idProduct = 0;
-    value =
-        [[NSUserDefaults standardUserDefaults] stringForKey:@"hotKeyProductID"];
-    [[NSScanner scannerWithString:value] scanHexInt:&idProduct];
-
-    xpc_connection_resume(connection);
+    changingState = YES;
     xpc_object_t message = xpc_dictionary_create(NULL, NULL, 0);
     xpc_dictionary_set_int64(message, "idVendor", idVendor);
     xpc_dictionary_set_int64(message, "idProduct", idProduct);
-    if ([action isEqualToString:@"enable"]) {
-        xpc_dictionary_set_int64(message, "request", 1);
-        suspend = FALSE;
-    } else if ([action isEqualToString:@"disable"]) {
-        xpc_dictionary_set_int64(message, "request", 0);
-        suspend = TRUE;
+    xpc_dictionary_set_int64(message, "request", enabling ? 1 : 0);
+    xpc_object_t event = xpc_connection_send_message_with_reply_sync(helperConnection, message);
+    const char *response = xpc_get_type(event) == XPC_TYPE_DICTIONARY ?
+        xpc_dictionary_get_string(event, "reply") : NULL;
+    BOOL present = response != NULL && strcmp(response, "OK") == 0;
+    BOOL absent = enabling && response != NULL &&
+        strcmp(response, "ABSENT") == 0;
+    BOOL succeeded = present || absent;
+    stateKnown = present;
+    atomic_fetch_add_explicit(&completedActionGeneration, 1,
+                              memory_order_relaxed);
+    if (succeeded) {
+        suspend = !enabling;
+        lockOnRemoval = enabling;
     }
-    const char *response = NULL;
-    xpc_object_t event = xpc_connection_send_message_with_reply_sync(connection, message);
-    response = xpc_dictionary_get_string(event, "reply");
-    if (response == NULL) {
-        return FALSE;
+    changingState = NO;
+    if (event == XPC_ERROR_CONNECTION_INVALID) {
+        xpc_connection_cancel(helperConnection);
+        helperConnection = NULL;
     }
-    return TRUE;
+    return succeeded;
     // NSAppleScript *lockScript = [[NSAppleScript alloc]
     // initWithSource:@"activate application \"ScreenSaverEngine\""];
     // [lockScript executeAndReturnError:nil];
@@ -240,6 +333,12 @@
 
 - (BOOL)state {
     return suspend;
+}
+- (BOOL)isStateKnown {
+    return stateKnown;
+}
+- (BOOL)isChangingState {
+    return changingState;
 }
 - (BOOL)enable {
     return [self action:@"enable"];
@@ -249,11 +348,19 @@
     return [self action:@"disable"];
 }
 
+- (void)dealloc {
+    if (helperConnection != NULL) xpc_connection_cancel(helperConnection);
+}
+
 
 // deal with disconnection of device from usb port
 
 static void handle_removal_callback(void *context, IOReturn result,
                                     void *sender, IOHIDDeviceRef device) {
+    YubiKey *key = (__bridge YubiKey *)context;
+    if (sender != key->removalManager || [key isChangingState]) return;
+    if (!key->suspend) key->stateKnown = NO;
+    if (!key->lockOnRemoval) return;
     if ([[NSUserDefaults standardUserDefaults] boolForKey:@"lockWhenUnplugged"]) {
         NSLog(@"YubiKey removed, locking computer");
         NSAppleScript *lockScript =
@@ -269,33 +376,60 @@ static void match_set(CFMutableDictionaryRef dict, CFStringRef key, int value) {
     CFRelease(number);
 }
 
-- (void)registerKeyRemoval {
+- (BOOL)registerKeyRemoval {
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    return [self registerKeyRemovalWithVendorID:[defaults stringForKey:@"hotKeyVendorID"]
+                                       productID:[defaults stringForKey:@"hotKeyProductID"]];
+}
+
+- (BOOL)registerKeyRemovalWithVendorID:(NSString *)vendor
+                               productID:(NSString *)product {
 
     unsigned int idVendor = 0;
     unsigned int idProduct = 0;
 
-    NSString *value = [[NSUserDefaults standardUserDefaults] stringForKey:@"hotKeyVendorID"];
-    [[NSScanner scannerWithString:value] scanHexInt:&idVendor];
-
-    value = [[NSUserDefaults standardUserDefaults] stringForKey:@"hotKeyProductID"];
-    [[NSScanner scannerWithString:value] scanHexInt:&idProduct];
-
-    IOHIDManagerRef hidManager = IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDOptionsTypeNone);
+    if (!parseHexID(vendor, &idVendor) || !parseHexID(product, &idProduct)) return NO;
+    IOHIDManagerRef candidate = IOHIDManagerCreate(kCFAllocatorDefault,
+                                                   kIOHIDOptionsTypeNone);
+    if (candidate == NULL) return NO;
 
     CFMutableDictionaryRef match = CFDictionaryCreateMutable(kCFAllocatorDefault,
                                                              0,
                                                              &kCFTypeDictionaryKeyCallBacks,
                                                              &kCFTypeDictionaryValueCallBacks);
+    if (match == NULL) {
+        CFRelease(candidate);
+        return NO;
+    }
     match_set(match, CFSTR(kIOHIDVendorIDKey), idVendor);
     match_set(match, CFSTR(kIOHIDProductIDKey), idProduct);
     match_set(match, CFSTR(kIOHIDDeviceUsagePageKey), 1);
     match_set(match, CFSTR(kIOHIDDeviceUsageKey), 6);
 
-    IOHIDManagerScheduleWithRunLoop(hidManager, CFRunLoopGetMain(), kCFRunLoopCommonModes);
-    IOHIDManagerSetDeviceMatching(hidManager, match);
-    IOHIDManagerRegisterDeviceRemovalCallback(hidManager, handle_removal_callback, NULL);
+    IOHIDManagerScheduleWithRunLoop(candidate, CFRunLoopGetMain(), kCFRunLoopCommonModes);
+    IOHIDManagerSetDeviceMatching(candidate, match);
+    IOHIDManagerRegisterDeviceRemovalCallback(candidate, handle_removal_callback,
+                                               (__bridge void *)self);
 
     CFRelease(match);
+    IOReturn opened = IOHIDManagerOpen(candidate, kIOHIDOptionsTypeNone);
+    if (opened != kIOReturnSuccess) {
+        NSLog(@"Could not open YubiKey removal matcher: 0x%x", opened);
+        IOHIDManagerUnscheduleFromRunLoop(candidate, CFRunLoopGetMain(),
+                                          kCFRunLoopCommonModes);
+        CFRelease(candidate);
+        return NO;
+    }
+    if (removalManager != NULL) {
+        IOHIDManagerUnscheduleFromRunLoop(removalManager, CFRunLoopGetMain(),
+                                          kCFRunLoopCommonModes);
+        IOHIDManagerClose(removalManager, kIOHIDOptionsTypeNone);
+        CFRelease(removalManager);
+    }
+    removalManager = candidate;
+    selectedVendorID = [vendor copy];
+    selectedProductID = [product copy];
+    return YES;
 }
 
 @end
